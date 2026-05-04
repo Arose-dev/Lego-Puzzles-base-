@@ -1017,6 +1017,12 @@ qwen2vl_series = {
         max_new_tokens=8192,
         post_process=False,
     ),
+    "Qwen3-VL-30B-A3B-Instruct": partial(
+        Qwen2VLChat,
+        model_path="Qwen/Qwen3-VL-30B-A3B-Instruct",
+        min_pixels=1280 * 28 * 28,
+        max_pixels=16384 * 28 * 28,
+    ),
     "Qwen2-VL-72B-Instruct": partial(
         Qwen2VLChat,
         model_path="Qwen/Qwen2-VL-72B-Instruct",
