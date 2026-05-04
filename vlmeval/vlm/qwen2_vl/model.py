@@ -204,6 +204,10 @@ class Qwen2VLChat(Qwen2VLPromptMixin, BaseModel):
             from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
             MODEL_CLS = Qwen2_5_VLForConditionalGeneration
             self.processor = AutoProcessor.from_pretrained(model_path)
+        elif listinstr(['qwen3', 'qwen3-vl', 'qwen3_vl'], model_path.lower()):
+            from transformers import AutoModelForImageTextToText, AutoProcessor
+            MODEL_CLS = AutoModelForImageTextToText
+            self.processor = AutoProcessor.from_pretrained(model_path)
         else:
             from transformers import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
             MODEL_CLS = Qwen2VLForConditionalGeneration
