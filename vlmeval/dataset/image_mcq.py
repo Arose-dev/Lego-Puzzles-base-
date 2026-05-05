@@ -1421,6 +1421,8 @@ class LEGOLite(LEGO):
 
     def __init__(self, dataset='LEGO_Lite'):
         super().__init__(dataset)
+        # Reuse LEGO's image directory so multi-image image_path filenames resolve correctly
+        self.img_root = self.img_root.replace('LEGO_Lite', 'LEGO')
         if 'category' in self.data.columns:
             self.data = self.data[
                 self.data['category'].isin(self.LITE_CATEGORIES)
