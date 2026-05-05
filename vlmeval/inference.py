@@ -1,3 +1,4 @@
+import json
 import torch
 import torch.distributed as dist
 from vlmeval.config import supported_VLM
@@ -135,6 +136,10 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
     else:
         model.set_dump_image(dataset.dump_image)
 
+    expert_tracking = hasattr(model, 'get_expert_activations')
+    expert_data = {}
+    expert_file = out_file.replace('.pkl', '_expert_routing.json')
+
     for i in tqdm(range(lt), desc=f'Infer {model_name}/{dataset_name}, Rank {rank}/{world_size}'):
         idx = data.iloc[i]['index']
         if idx in res:
@@ -148,15 +153,31 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
         response = model.generate(message=struct, dataset=dataset_name)
         torch.cuda.empty_cache()
 
+        if expert_tracking:
+            row = data.iloc[i]
+            category = 'unknown'
+            for col in ('category', 'sub_category', 'split', 'type'):
+                if col in row and not (isinstance(row[col], float)):
+                    category = str(row[col])
+                    break
+            expert_data[int(idx)] = {'category': category, 'layer_experts': model.get_expert_activations()}
+
         if verbose:
             print(response, flush=True)
 
         res[idx] = response
         if (i + 1) % 10 == 0:
             dump(res, out_file)
+            if expert_tracking and expert_data:
+                with open(expert_file, 'w') as f:
+                    json.dump(expert_data, f)
 
     res = {k: res[k] for k in data_indices}
     dump(res, out_file)
+    if expert_tracking and expert_data:
+        with open(expert_file, 'w') as f:
+            json.dump(expert_data, f)
+        logging.info(f'Expert routing data saved to {expert_file}')
     return model
 
 

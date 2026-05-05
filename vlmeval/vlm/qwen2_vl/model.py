@@ -5,6 +5,7 @@ import sys
 import warnings
 import math
 import logging
+from collections import Counter
 
 import torch
 
@@ -266,6 +267,43 @@ class Qwen2VLChat(Qwen2VLPromptMixin, BaseModel):
             self.model.eval()
 
         torch.cuda.empty_cache()
+
+        if listinstr(['qwen3', 'qwen3-vl', 'qwen3_vl'], model_path.lower()) and not self.use_vllm and not self.use_lmdeploy:
+            self._setup_expert_tracking()
+
+    def _setup_expert_tracking(self):
+        self._expert_hooks = []
+        self._layer_expert_counts = {}
+
+        config = self.model.config
+        self._moe_top_k = getattr(
+            config, 'num_experts_per_tok',
+            getattr(config, 'top_k', getattr(config, 'num_selected_experts', 2))
+        )
+
+        for name, module in self.model.named_modules():
+            if ('gate' in name.lower() or 'router' in name.lower()) and isinstance(module, torch.nn.Linear):
+                if module.out_features < 8:
+                    continue
+                self._layer_expert_counts[name] = Counter()
+
+                def make_hook(layer_name, top_k):
+                    def hook(mod, inp, out):
+                        with torch.no_grad():
+                            selected = torch.topk(out.float(), k=min(top_k, out.shape[-1]), dim=-1).indices
+                            self._layer_expert_counts[layer_name].update(selected.view(-1).cpu().tolist())
+                    return hook
+
+                h = module.register_forward_hook(make_hook(name, self._moe_top_k))
+                self._expert_hooks.append(h)
+
+        logging.info(f'Expert tracking enabled on {len(self._expert_hooks)} MoE gate layers (top-{self._moe_top_k})')
+
+    def get_expert_activations(self):
+        result = {k: dict(v) for k, v in self._layer_expert_counts.items()}
+        for k in self._layer_expert_counts:
+            self._layer_expert_counts[k] = Counter()
+        return result
 
     def _prepare_content(self, inputs: list[dict[str, str]], dataset: str | None = None) -> list[dict[str, str]]:
         """
