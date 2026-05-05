@@ -1411,6 +1411,24 @@ class LEGO(ImageMCQDataset):
         return msgs
 
 
+class LEGOLite(LEGO):
+    LITE_CATEGORIES = {'height', 'position', 'rotation', 'ordering'}
+
+    DATASET_URL = {
+        'LEGO_Lite': 'https://opencompass.openxlab.space/utils/VLMEval/LEGO.tsv',
+    }
+    DATASET_MD5 = {'LEGO_Lite': 'd595f50e1fb4d4eb12cbc95297893ffc'}
+
+    def __init__(self, dataset='LEGO_Lite'):
+        super().__init__(dataset)
+        if 'category' in self.data.columns:
+            self.data = self.data[
+                self.data['category'].isin(self.LITE_CATEGORIES)
+            ].reset_index(drop=True)
+        else:
+            warnings.warn('LEGO_Lite: no "category" column found, using full dataset')
+
+
 class VisuLogic(ImageMCQDataset):
     TYPE = "MCQ"
     DATASET_URL = {
