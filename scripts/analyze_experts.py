@@ -8,12 +8,18 @@ Usage:
 """
 
 import argparse
+import glob
 import json
 from collections import defaultdict, Counter
 
 
 def load_routing(path):
-    with open(path) as f:
+    matches = glob.glob(path, recursive=True)
+    if not matches:
+        raise FileNotFoundError(f'No file found matching: {path}')
+    if len(matches) > 1:
+        print(f'Multiple matches found, using: {matches[-1]}')
+    with open(matches[-1]) as f:
         return json.load(f)
 
 
