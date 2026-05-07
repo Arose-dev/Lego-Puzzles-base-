@@ -236,7 +236,6 @@ class Qwen2VLChat(Qwen2VLPromptMixin, BaseModel):
             logging.info(
                 f'Using vLLM for {self.model_path} inference with {tp_size} GPUs (available: {gpu_count})'
             )
-            import os
             if os.environ.get('VLLM_WORKER_MULTIPROC_METHOD') != 'spawn':
                 logging.warning(
                     'VLLM_WORKER_MULTIPROC_METHOD is not set to spawn.'
