@@ -294,9 +294,17 @@ class Qwen2VLChat(Qwen2VLPromptMixin, BaseModel):
             def make_hook(layer_name, top_k, router):
                 def hook(mod, inp, out):
                     with torch.no_grad():
-                        if router and isinstance(out, (tuple, list)) and len(out) >= 2:
-                            # TopKRouter returns (selected_expert_indices, routing_weights)
-                            selected = out[0].reshape(-1)
+                        if router and isinstance(out, (tuple, list)):
+                            # Find the integer-typed tensor — that's the expert index tensor
+                            selected = None
+                            for elem in out:
+                                if isinstance(elem, torch.Tensor) and elem.dtype in (
+                                    torch.int32, torch.int64, torch.long
+                                ):
+                                    selected = elem.reshape(-1)
+                                    break
+                            if selected is None:
+                                return
                         elif isinstance(out, torch.Tensor) and out.ndim >= 1:
                             selected = torch.topk(out.float(), k=min(top_k, out.shape[-1]), dim=-1).indices.reshape(-1)
                         else:
