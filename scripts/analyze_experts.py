@@ -54,8 +54,11 @@ def print_top_experts(cat_experts, top_k):
         counter = cat_experts[cat]
         total = sum(counter.values())
         top = counter.most_common(top_k)
-        top_str = ', '.join(f'E{eid}({cnt/total:.1%})' for eid, cnt in top)
-        print(f"  {cat:<20} {top_str}")
+        print(f"\n  [{cat}]  (total activations: {total:,})")
+        print(f"  {'Rank':<6} {'Expert':>8} {'Activations':>14} {'Share':>8}")
+        print(f"  {'-'*40}")
+        for rank, (eid, cnt) in enumerate(top, 1):
+            print(f"  {rank:<6} {'E' + str(eid):>8} {cnt:>14,} {cnt/total:>7.2%}")
 
 
 def print_layer_breakdown(cat_layer_experts, category, top_k):
@@ -67,9 +70,12 @@ def print_layer_breakdown(cat_layer_experts, category, top_k):
         counter = cat_layer_experts[category][layer]
         total = sum(counter.values())
         top = counter.most_common(top_k)
-        top_str = ', '.join(f'E{eid}({cnt/total:.1%})' for eid, cnt in top)
         short_layer = layer.split('.')[-3] if layer.count('.') >= 3 else layer
-        print(f"  {short_layer:<30} {top_str}")
+        print(f"\n  [{short_layer}]  (total: {total:,})")
+        print(f"  {'Rank':<6} {'Expert':>8} {'Activations':>14} {'Share':>8}")
+        print(f"  {'-'*40}")
+        for rank, (eid, cnt) in enumerate(top, 1):
+            print(f"  {rank:<6} {'E' + str(eid):>8} {cnt:>14,} {cnt/total:>7.2%}")
 
 
 def save_csv(cat_experts, out_path):
@@ -89,7 +95,7 @@ def save_csv(cat_experts, out_path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--routing', required=True, help='Path to *_expert_routing.json')
-    parser.add_argument('--top', type=int, default=5, help='Top-K experts to show per category')
+    parser.add_argument('--top', type=int, default=20, help='Top-K experts to show per category')
     parser.add_argument('--layer-breakdown', type=str, default=None,
                         help='Print layer-by-layer breakdown for a specific category')
     parser.add_argument('--save-csv', type=str, default=None, help='Save expert usage matrix as CSV')
