@@ -272,8 +272,8 @@ class Qwen2VLChat(Qwen2VLPromptMixin, BaseModel):
             bias_ids_env = os.environ.get('EXPERT_BIAS_IDS', '')
             if bias_ids_env:
                 bias_ids = [int(x.strip()) for x in bias_ids_env.split(',')]
-                bias_scale = float(os.environ.get('EXPERT_BIAS_SCALE', '2.0'))
-                self._setup_expert_bias(bias_ids, bias_scale)
+                bias_value = float(os.environ.get('EXPERT_BIAS_VALUE', '3.0'))
+                self._setup_expert_bias(bias_ids, bias_value)
 
     def _setup_expert_tracking(self):
         self._expert_hooks = []
@@ -327,32 +327,50 @@ class Qwen2VLChat(Qwen2VLPromptMixin, BaseModel):
             self._layer_expert_counts[k] = Counter()
         return result
 
-    def _setup_expert_bias(self, preferred_expert_ids, scale_factor=2.0):
-        """Scale routing weight rows for preferred experts, increasing their logit for all tokens."""
-        self._router_weight_backup = {}
+    def _setup_expert_bias(self, preferred_expert_ids, bias_value=3.0):
+        """Patch each router forward to add a constant logit bias for preferred experts before softmax."""
+        import torch.nn.functional as F
+
         count = 0
         for name, module in self.model.named_modules():
             if 'topkrouter' not in type(module).__name__.lower():
                 continue
-            if not hasattr(module, 'weight'):
-                continue
-            self._router_weight_backup[name] = module.weight.data.clone()
-            with torch.no_grad():
-                for eid in preferred_expert_ids:
-                    if eid < module.weight.shape[0]:
-                        module.weight.data[eid] *= scale_factor
+
+            num_experts = module.weight.shape[0]
+            hidden_dim = module.weight.shape[1]
+            top_k = getattr(module, 'top_k', 2)
+
+            bias_vec = torch.zeros(num_experts, dtype=torch.float32, device=module.weight.device)
+            for eid in preferred_expert_ids:
+                if eid < num_experts:
+                    bias_vec[eid] = bias_value
+            module.register_buffer('_expert_bias_vec', bias_vec)
+
+            def make_forward(mod, hd, tk):
+                def forward(hidden_states):
+                    hs = hidden_states.reshape(-1, hd)
+                    router_logits = F.linear(hs, mod.weight)
+                    router_logits = router_logits + mod._expert_bias_vec.to(router_logits.dtype)
+                    router_probs = F.softmax(router_logits, dtype=torch.float, dim=-1)
+                    router_top_value, router_indices = torch.topk(router_probs, tk, dim=-1)
+                    router_top_value /= router_top_value.sum(dim=-1, keepdim=True)
+                    router_top_value = router_top_value.to(router_logits.dtype)
+                    return router_logits, router_top_value, router_indices
+                return forward
+
+            module.forward = make_forward(module, hidden_dim, top_k)
             count += 1
-        logging.info(
-            f'Expert bias applied: experts {preferred_expert_ids} scaled {scale_factor}x across {count} routers'
-        )
+
+        logging.info(f'Expert logit bias ({bias_value}) patched into {count} routers for experts {preferred_expert_ids}')
 
     def remove_expert_bias(self):
-        """Restore original router weights, removing any applied bias."""
+        """Remove router forward patches and bias buffers, restoring original routing."""
         for name, module in self.model.named_modules():
-            if name in getattr(self, '_router_weight_backup', {}):
-                module.weight.data.copy_(self._router_weight_backup[name])
-        self._router_weight_backup = {}
-        logging.info('Expert bias removed, original router weights restored')
+            if hasattr(module, '_expert_bias_vec'):
+                if 'forward' in module.__dict__:
+                    del module.__dict__['forward']
+                del module._expert_bias_vec
+        logging.info('Expert bias removed')
 
     def _prepare_content(self, inputs: list[dict[str, str]], dataset: str | None = None) -> list[dict[str, str]]:
         """
