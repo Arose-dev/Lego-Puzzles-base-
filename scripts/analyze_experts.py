@@ -3,7 +3,7 @@ Analyze MoE expert routing per LEGO category.
 
 Usage:
     python scripts/analyze_experts.py \
-        --routing outputs/Qwen3-VL-30B-A3B-Instruct/<eval_id>/Qwen3-VL-30B-A3B-Instruct_LEGO_expert_routing.json \
+        --routing outputs/Qwen3-VL-30B-A3B-Instruct/<eval_id>/01_LEGO_expert_routing.json \
         --top 10
 """
 
