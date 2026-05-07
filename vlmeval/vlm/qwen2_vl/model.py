@@ -270,6 +270,11 @@ class Qwen2VLChat(Qwen2VLPromptMixin, BaseModel):
 
         if listinstr(['qwen3', 'qwen3-vl', 'qwen3_vl'], model_path.lower()) and not self.use_vllm and not self.use_lmdeploy:
             self._setup_expert_tracking()
+            bias_ids_env = os.environ.get('EXPERT_BIAS_IDS', '')
+            if bias_ids_env:
+                bias_ids = [int(x.strip()) for x in bias_ids_env.split(',')]
+                bias_scale = float(os.environ.get('EXPERT_BIAS_SCALE', '2.0'))
+                self._setup_expert_bias(bias_ids, bias_scale)
 
     def _setup_expert_tracking(self):
         self._expert_hooks = []
@@ -322,6 +327,33 @@ class Qwen2VLChat(Qwen2VLPromptMixin, BaseModel):
         for k in self._layer_expert_counts:
             self._layer_expert_counts[k] = Counter()
         return result
+
+    def _setup_expert_bias(self, preferred_expert_ids, scale_factor=2.0):
+        """Scale routing weight rows for preferred experts, increasing their logit for all tokens."""
+        self._router_weight_backup = {}
+        count = 0
+        for name, module in self.model.named_modules():
+            if 'topkrouter' not in type(module).__name__.lower():
+                continue
+            if not hasattr(module, 'weight'):
+                continue
+            self._router_weight_backup[name] = module.weight.data.clone()
+            with torch.no_grad():
+                for eid in preferred_expert_ids:
+                    if eid < module.weight.shape[0]:
+                        module.weight.data[eid] *= scale_factor
+            count += 1
+        logging.info(
+            f'Expert bias applied: experts {preferred_expert_ids} scaled {scale_factor}x across {count} routers'
+        )
+
+    def remove_expert_bias(self):
+        """Restore original router weights, removing any applied bias."""
+        for name, module in self.model.named_modules():
+            if name in getattr(self, '_router_weight_backup', {}):
+                module.weight.data.copy_(self._router_weight_backup[name])
+        self._router_weight_backup = {}
+        logging.info('Expert bias removed, original router weights restored')
 
     def _prepare_content(self, inputs: list[dict[str, str]], dataset: str | None = None) -> list[dict[str, str]]:
         """
