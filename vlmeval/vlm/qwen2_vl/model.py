@@ -282,20 +282,30 @@ class Qwen2VLChat(Qwen2VLPromptMixin, BaseModel):
         )
 
         for name, module in self.model.named_modules():
-            if ('gate' in name.lower() or 'router' in name.lower()) and isinstance(module, torch.nn.Linear):
-                if module.out_features < 8:
-                    continue
-                self._layer_expert_counts[name] = Counter()
+            cls_name = type(module).__name__.lower()
+            is_linear_gate = ('gate' in name.lower() or 'router' in name.lower()) and isinstance(module, torch.nn.Linear)
+            is_topk_router = 'topkrouter' in cls_name or ('router' in cls_name and 'gate' in name.lower())
+            if not (is_linear_gate or is_topk_router):
+                continue
+            if isinstance(module, torch.nn.Linear) and module.out_features < 8:
+                continue
+            self._layer_expert_counts[name] = Counter()
 
-                def make_hook(layer_name, top_k):
-                    def hook(mod, inp, out):
-                        with torch.no_grad():
-                            selected = torch.topk(out.float(), k=min(top_k, out.shape[-1]), dim=-1).indices
-                            self._layer_expert_counts[layer_name].update(selected.view(-1).cpu().tolist())
-                    return hook
+            def make_hook(layer_name, top_k, router):
+                def hook(mod, inp, out):
+                    with torch.no_grad():
+                        if router and isinstance(out, (tuple, list)) and len(out) >= 2:
+                            # TopKRouter returns (routing_weights, selected_expert_indices)
+                            selected = out[1].reshape(-1)
+                        elif isinstance(out, torch.Tensor) and out.ndim >= 1:
+                            selected = torch.topk(out.float(), k=min(top_k, out.shape[-1]), dim=-1).indices.reshape(-1)
+                        else:
+                            return
+                        self._layer_expert_counts[layer_name].update(selected.cpu().tolist())
+                return hook
 
-                h = module.register_forward_hook(make_hook(name, self._moe_top_k))
-                self._expert_hooks.append(h)
+            h = module.register_forward_hook(make_hook(name, self._moe_top_k, is_topk_router))
+            self._expert_hooks.append(h)
 
         logging.info(f'Expert tracking enabled on {len(self._expert_hooks)} MoE gate layers (top-{self._moe_top_k})')
 
