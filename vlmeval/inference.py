@@ -1,8 +1,10 @@
 import json
+import string
 import torch
 import torch.distributed as dist
 from vlmeval.config import supported_VLM
 from vlmeval.utils import track_progress_rich
+from vlmeval.utils.matching_util import can_infer, can_infer_lego
 from vlmeval.smp import *
 
 FAIL_MSG = 'Failed to obtain answer via API.'
@@ -160,7 +162,16 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
                 if col in row and not (isinstance(row[col], float)):
                     category = str(row[col])
                     break
-            expert_data[int(idx)] = {'category': category, 'layer_experts': model.get_expert_activations()}
+            correct = None
+            if 'answer' in row and not isinstance(row['answer'], float):
+                choices = {c: row[c] for c in string.ascii_uppercase if c in row and not pd.isna(row[c])}
+                gt = str(row['answer'])
+                if 'question_type' in row and not isinstance(row['question_type'], float):
+                    predicted = can_infer_lego(response, str(row['question_type']), choices)
+                else:
+                    predicted = can_infer(response, choices)
+                correct = bool(predicted == gt) if predicted else False
+            expert_data[int(idx)] = {'category': category, 'correct': correct, 'layer_experts': model.get_expert_activations()}
 
         if verbose:
             print(response, flush=True)
