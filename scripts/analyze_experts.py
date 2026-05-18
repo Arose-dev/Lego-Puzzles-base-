@@ -65,7 +65,7 @@ def print_layer_breakdown(cat_layer_experts, category, top_k):
     print(f"\n{'='*60}")
     print(f"Layer-by-layer expert routing for: {category}")
     print(f"{'='*60}")
-    layers = sorted(cat_layer_experts[category].keys())
+    layers = sorted(cat_layer_experts[category].keys(), key=lambda x: int(x.split('.')[-3]) if x.count('.') >= 3 else int(x) if x.isdigit() else x)
     for layer in layers:
         counter = cat_layer_experts[category][layer]
         total = sum(counter.values())
